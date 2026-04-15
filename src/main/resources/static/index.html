@@ -126,7 +126,8 @@ footer a:hover{color:#fff}
 <script>
 (function(){
   let products = [];
-  let cart = JSON.parse(localStorage.getItem('freshmart-cart') || '[]');
+  let cartId = localStorage.getItem('freshmart-cartId') || null;
+  let cart = [];
   let activeCategory = 'ALL';
 
   const grid = document.getElementById('productGrid');
@@ -141,15 +142,35 @@ footer a:hover{color:#fff}
   const searchInput = document.getElementById('searchInput');
   const categoriesEl = document.getElementById('categories');
 
-  const catEmojis = {ALL:'\uD83D\uDED2',PRODUCE:'\uD83C\uDF4E',DAIRY:'\uD83E\uDD5B',BAKERY:'\uD83C\uDF5E',MEAT:'\uD83E\uDD69',SEAFOOD:'\uD83D\uDC1F',BEVERAGES:'\uD83E\uDDC3',SNACKS:'\uD83C\uDF7F',FROZEN:'\u2744\uFE0F',PANTRY:'\uD83C\uDFFA',HOUSEHOLD:'\uD83E\uDDFB'};
+  async function ensureCart(){
+    if(!cartId){
+      const resp = await fetch('/api/cart',{method:'POST'});
+      const data = await resp.json();
+      cartId = data.cartId;
+      localStorage.setItem('freshmart-cartId', cartId);
+    }
+    return cartId;
+  }
+
+  async function refreshCart(){
+    if(!cartId){ cart=[]; updateBadge(); renderCart(); return; }
+    try {
+      const resp = await fetch('/api/cart/'+cartId);
+      if(resp.ok) cart = await resp.json();
+      else { cart=[]; cartId=null; localStorage.removeItem('freshmart-cartId'); }
+    } catch(e){ cart=[]; }
+    updateBadge();
+    renderCart();
+  }
 
   function renderCategories(){
     const cats = ['ALL','PRODUCE','DAIRY','BAKERY','MEAT','SEAFOOD','BEVERAGES','SNACKS','FROZEN','PANTRY','HOUSEHOLD'];
-    categoriesEl.innerHTML = cats.map(c =>
-      `<button class="cat-pill ${activeCategory===c?'active':''}" data-cat="${c}">${catEmojis[c]||''} ${c==='ALL'?'All':c.charAt(0)+c.slice(1).toLowerCase()}</button>`
-    ).join('');
-    categoriesEl.querySelectorAll('.cat-pill').forEach(btn => {
-      btn.addEventListener('click', () => {
+    const catEmojis = {ALL:'&#x1F6D2;',PRODUCE:'&#x1F34E;',DAIRY:'&#x1F95B;',BAKERY:'&#x1F35E;',MEAT:'&#x1F969;',SEAFOOD:'&#x1F41F;',BEVERAGES:'&#x1F9C3;',SNACKS:'&#x1F37F;',FROZEN:'&#x2744;&#xFE0F;',PANTRY:'&#x1F3FA;',HOUSEHOLD:'&#x1F9F1;'};
+    categoriesEl.innerHTML = cats.map(function(c){
+      return '<button class="cat-pill '+(activeCategory===c?'active':'')+'" data-cat="'+c+'">'+(catEmojis[c]||'')+' '+(c==='ALL'?'All':c.charAt(0)+c.slice(1).toLowerCase())+'</button>';
+    }).join('');
+    categoriesEl.querySelectorAll('.cat-pill').forEach(function(btn){
+      btn.addEventListener('click', function(){
         activeCategory = btn.dataset.cat;
         fetchProducts();
       });
@@ -158,11 +179,11 @@ footer a:hover{color:#fff}
 
   async function fetchProducts(){
     try {
-      let url = '/api/products';
-      const q = searchInput.value.trim();
-      if(q) url = `/api/products/search?q=${encodeURIComponent(q)}`;
-      else if(activeCategory !== 'ALL') url = `/api/products/category/${activeCategory}`;
-      const resp = await fetch(url);
+      var url = '/api/products';
+      var q = searchInput.value.trim();
+      if(q) url = '/api/products/search?q='+encodeURIComponent(q);
+      else if(activeCategory !== 'ALL') url = '/api/products/category/'+activeCategory;
+      var resp = await fetch(url);
       products = await resp.json();
     } catch(e){ products = []; }
     renderProducts();
@@ -174,75 +195,86 @@ footer a:hover{color:#fff}
       grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#999;padding:40px">No products found.</p>';
       return;
     }
-    grid.innerHTML = products.map(p => {
-      const stock = p.stockQuantity < 5;
-      return `<div class="card">
-        <div class="card-emoji">${p.emoji||'\uD83D\uDCE6'}</div>
-        <div class="card-name">${esc(p.name)}</div>
-        <div class="card-cat">${p.category}</div>
-        <div class="card-price">$${Number(p.price).toFixed(2)}</div>
-        <div class="${stock?'stock-low':'stock-ok'}">${stock?'\u26A0\uFE0F Low Stock':'\u2705 In Stock'}</div>
-        <button class="add-btn" onclick="window._addToCart(${p.id})">Add to Cart</button>
-      </div>`;
+    grid.innerHTML = products.map(function(p){
+      var stock = p.stockQuantity < 5;
+      return '<div class="card">'+
+        '<div class="card-emoji">'+(p.emoji||'&#x1F4E6;')+'</div>'+
+        '<div class="card-name">'+esc(p.name)+'</div>'+
+        '<div class="card-cat">'+p.category+'</div>'+
+        '<div class="card-price">$'+Number(p.price).toFixed(2)+'</div>'+
+        '<div class="'+(stock?'stock-low':'stock-ok')+'">'+(stock?'&#x26A0;&#xFE0F; Low Stock':'&#x2705; In Stock')+'</div>'+
+        '<button class="add-btn" onclick="window._addToCart('+p.id+')">Add to Cart</button>'+
+      '</div>';
     }).join('');
   }
 
   function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
-  window._addToCart = function(id){
-    const p = products.find(x=>x.id===id);
+  window._addToCart = async function(id){
+    var p = products.find(function(x){return x.id===id;});
     if(!p) return;
-    const existing = cart.find(x=>x.id===id);
-    if(existing) existing.qty++;
-    else cart.push({id:p.id,name:p.name,emoji:p.emoji,price:Number(p.price),qty:1});
-    saveCart();
+    await ensureCart();
+    await fetch('/api/cart/'+cartId+'/items',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({productId:id, quantity:1})
+    });
+    await refreshCart();
     openSidebar();
   };
 
-  function saveCart(){
-    localStorage.setItem('freshmart-cart', JSON.stringify(cart));
-    updateBadge();
-    renderCart();
-  }
-
   function updateBadge(){
-    const total = cart.reduce((s,i)=>s+i.qty,0);
+    var total = cart.reduce(function(s,i){return s+i.quantity;},0);
     badge.textContent = total;
     badge.style.display = total > 0 ? 'flex' : 'none';
   }
 
-  function getTotal(){
-    return cart.reduce((s,i)=>s+i.price*i.qty,0);
+  async function fetchTotal(){
+    if(!cartId) return 0;
+    try {
+      var resp = await fetch('/api/cart/'+cartId+'/total');
+      var data = await resp.json();
+      return Number(data.total);
+    } catch(e){ return 0; }
   }
 
   function renderCart(){
     if(!cart.length){
-      cartItemsEl.innerHTML = '<div class="empty-cart">\uD83D\uDED2 Your cart is empty</div>';
+      cartItemsEl.innerHTML = '<div class="empty-cart">&#x1F6D2; Your cart is empty</div>';
       cartFooter.style.display = 'none';
       return;
     }
     cartFooter.style.display = 'block';
-    cartTotalEl.textContent = '$' + getTotal().toFixed(2);
-    cartItemsEl.innerHTML = cart.map((item,i) => `
-      <div class="cart-item">
-        <div class="cart-item-emoji">${item.emoji||'\uD83D\uDCE6'}</div>
-        <div class="cart-item-info">
-          <div class="cart-item-name">${esc(item.name)}</div>
-          <div class="cart-item-price">$${(item.price*item.qty).toFixed(2)}</div>
-        </div>
-        <div class="qty-controls">
-          <button class="qty-btn" onclick="window._changeQty(${i},-1)">&minus;</button>
-          <span>${item.qty}</span>
-          <button class="qty-btn" onclick="window._changeQty(${i},1)">+</button>
-        </div>
-      </div>
-    `).join('');
+    var localTotal = cart.reduce(function(s,i){return s+Number(i.price)*i.quantity;},0);
+    cartTotalEl.textContent = '$' + localTotal.toFixed(2);
+    cartItemsEl.innerHTML = cart.map(function(item){
+      return '<div class="cart-item">'+
+        '<div class="cart-item-emoji">'+(item.emoji||'&#x1F4E6;')+'</div>'+
+        '<div class="cart-item-info">'+
+          '<div class="cart-item-name">'+esc(item.productName)+'</div>'+
+          '<div class="cart-item-price">$'+(Number(item.price)*item.quantity).toFixed(2)+'</div>'+
+        '</div>'+
+        '<div class="qty-controls">'+
+          '<button class="qty-btn" onclick="window._changeQty('+item.productId+','+(item.quantity-1)+')">&minus;</button>'+
+          '<span>'+item.quantity+'</span>'+
+          '<button class="qty-btn" onclick="window._changeQty('+item.productId+','+(item.quantity+1)+')">+</button>'+
+        '</div>'+
+      '</div>';
+    }).join('');
   }
 
-  window._changeQty = function(idx, delta){
-    cart[idx].qty += delta;
-    if(cart[idx].qty <= 0) cart.splice(idx,1);
-    saveCart();
+  window._changeQty = async function(productId, newQty){
+    if(!cartId) return;
+    if(newQty <= 0){
+      await fetch('/api/cart/'+cartId+'/items/'+productId,{method:'DELETE'});
+    } else {
+      await fetch('/api/cart/'+cartId+'/items/'+productId,{
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({quantity:newQty})
+      });
+    }
+    await refreshCart();
   };
 
   function openSidebar(){
@@ -258,62 +290,78 @@ footer a:hover{color:#fff}
   document.getElementById('sidebarClose').addEventListener('click', closeSidebar);
   overlay.addEventListener('click', closeSidebar);
 
-  document.getElementById('checkoutBtn').addEventListener('click', () => {
+  document.getElementById('checkoutBtn').addEventListener('click', function(){
     closeSidebar();
     showCheckoutForm();
   });
 
-  function showCheckoutForm(){
+  async function showCheckoutForm(){
+    var total = await fetchTotal();
     modal.classList.add('open');
-    modalContent.innerHTML = `
-      <button class="modal-close" onclick="document.getElementById('checkoutModal').classList.remove('open')">&times;</button>
-      <h2>Checkout</h2>
-      <div class="form-group"><label>Full Name</label><input type="text" id="coName" required></div>
-      <div class="form-group"><label>Email</label><input type="email" id="coEmail" required></div>
-      <div class="form-group"><label>Phone</label><input type="tel" id="coPhone"></div>
-      <div class="form-group"><label>Delivery Address</label><input type="text" id="coAddress" required></div>
-      <div class="order-summary">
-        ${cart.map(i=>`<div class="order-summary-item"><span>${esc(i.name)} x${i.qty}</span><span>$${(i.price*i.qty).toFixed(2)}</span></div>`).join('')}
-        <div class="order-total"><span>Total</span><span>$${getTotal().toFixed(2)}</span></div>
-      </div>
-      <button class="place-order-btn" id="placeOrderBtn">Place Order</button>
-    `;
+    var summaryHtml = cart.map(function(i){
+      return '<div class="order-summary-item"><span>'+esc(i.productName)+' x'+i.quantity+'</span><span>$'+(Number(i.price)*i.quantity).toFixed(2)+'</span></div>';
+    }).join('');
+    modalContent.innerHTML =
+      '<button class="modal-close" onclick="document.getElementById(\'checkoutModal\').classList.remove(\'open\')">&times;</button>'+
+      '<h2>Checkout</h2>'+
+      '<div class="form-group"><label>Full Name</label><input type="text" id="coName" required></div>'+
+      '<div class="form-group"><label>Email</label><input type="email" id="coEmail" required></div>'+
+      '<div class="form-group"><label>Phone</label><input type="tel" id="coPhone"></div>'+
+      '<div class="form-group"><label>Delivery Address</label><input type="text" id="coAddress" required></div>'+
+      '<div class="order-summary">'+summaryHtml+
+        '<div class="order-total"><span>Total</span><span>$'+total.toFixed(2)+'</span></div>'+
+      '</div>'+
+      '<button class="place-order-btn" id="placeOrderBtn">Place Order</button>';
     document.getElementById('placeOrderBtn').addEventListener('click', placeOrder);
   }
 
   async function placeOrder(){
-    const name = document.getElementById('coName').value.trim();
-    const email = document.getElementById('coEmail').value.trim();
+    var name = document.getElementById('coName').value.trim();
+    var email = document.getElementById('coEmail').value.trim();
+    var phone = document.getElementById('coPhone').value.trim();
+    var address = document.getElementById('coAddress').value.trim();
     if(!name || !email){alert('Please fill in name and email.');return;}
 
-    const orderId = 'FM-' + Date.now().toString(36).toUpperCase();
-    // Clear cart
-    cart = [];
-    saveCart();
+    try {
+      var resp = await fetch('/api/orders/checkout',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({cartId:cartId, customerName:name, email:email, phone:phone, address:address})
+      });
+      var order = await resp.json();
 
-    modalContent.innerHTML = `
-      <div class="success-msg">
-        <div class="check">\u2705</div>
-        <h3>Order Placed!</h3>
-        <p>Order ID: <strong>${orderId}</strong></p>
-        <p style="color:#666;margin-top:8px">Thank you for shopping at FreshMart!</p>
-        <button class="place-order-btn" style="margin-top:20px" onclick="document.getElementById('checkoutModal').classList.remove('open')">Continue Shopping</button>
-      </div>
-    `;
+      cart = [];
+      cartId = null;
+      localStorage.removeItem('freshmart-cartId');
+      updateBadge();
+      renderCart();
+
+      modalContent.innerHTML =
+        '<div class="success-msg">'+
+          '<div class="check">&#x2705;</div>'+
+          '<h3>Order Placed!</h3>'+
+          '<p>Order ID: <strong>#'+order.id+'</strong></p>'+
+          '<p style="color:#666;margin-top:4px">Total: <strong>$'+Number(order.total).toFixed(2)+'</strong></p>'+
+          '<p style="color:#666;margin-top:8px">Thank you for shopping at FreshMart!</p>'+
+          '<button class="place-order-btn" style="margin-top:20px" onclick="document.getElementById(\'checkoutModal\').classList.remove(\'open\')">Continue Shopping</button>'+
+        '</div>';
+      fetchProducts();
+    } catch(e){
+      alert('Checkout failed. Please try again.');
+    }
   }
 
-  let searchTimeout;
-  searchInput.addEventListener('input', () => {
+  var searchTimeout;
+  searchInput.addEventListener('input', function(){
     clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
+    searchTimeout = setTimeout(function(){
       if(searchInput.value.trim()) activeCategory = 'ALL';
       fetchProducts();
     }, 300);
   });
 
   // Init
-  updateBadge();
-  renderCart();
+  refreshCart();
   renderCategories();
   fetchProducts();
 })();
