@@ -38,7 +38,7 @@ main{flex:1;padding:24px;max-width:1280px;margin:0 auto;width:100%}
 .add-btn:hover{background:#e55a28}
 .sidebar-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99;display:none}
 .sidebar-overlay.open{display:block}
-.sidebar{position:fixed;top:0;right:-400px;width:380px;max-width:90vw;height:100%;background:#fff;z-index:201;transition:right .3s;display:flex;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.15)}
+.sidebar{position:fixed;top:56px;right:-400px;width:380px;max-width:90vw;height:calc(100% - 56px);background:#fff;z-index:201;transition:right .3s;display:flex;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.15)}
 .sidebar.open{right:0}
 .sidebar-header{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid #eee}
 .sidebar-header h2{font-size:1.2rem}
@@ -288,7 +288,9 @@ footer a:hover{color:#fff}
     overlay.classList.remove('open');
   }
 
-  document.getElementById('cartToggle').addEventListener('click', openSidebar);
+  document.getElementById('cartToggle').addEventListener('click', function(){
+    if(sidebar.classList.contains('open')) closeSidebar(); else openSidebar();
+  });
   document.getElementById('sidebarClose').addEventListener('click', closeSidebar);
   overlay.addEventListener('click', closeSidebar);
 
