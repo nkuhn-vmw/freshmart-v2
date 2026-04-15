@@ -1,0 +1,10 @@
+applications:
+  - name: freshmart-v2
+    memory: 1G
+    instances: 1
+    buildpack: java_buildpack_offline
+    path: .
+    env:
+      JAVA_OPTS: -Djava.security.egd=file:///dev/urandom
+    routes:
+      - route: freshmart-v2.apps.tas-ndc.kuhn-labs.com
