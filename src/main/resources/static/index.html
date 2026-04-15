@@ -36,7 +36,7 @@ main{flex:1;padding:24px;max-width:1280px;margin:0 auto;width:100%}
 .stock-low{color:#ff6b35;font-size:.78rem;margin-bottom:10px}
 .add-btn{background:#ff6b35;color:#fff;border:none;padding:10px 20px;border-radius:8px;font-weight:600;cursor:pointer;font-size:.9rem;width:100%;transition:background .2s}
 .add-btn:hover{background:#e55a28}
-.sidebar-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;display:none}
+.sidebar-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99;display:none}
 .sidebar-overlay.open{display:block}
 .sidebar{position:fixed;top:0;right:-400px;width:380px;max-width:90vw;height:100%;background:#fff;z-index:201;transition:right .3s;display:flex;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.15)}
 .sidebar.open{right:0}
@@ -171,6 +171,8 @@ footer a:hover{color:#fff}
     }).join('');
     categoriesEl.querySelectorAll('.cat-pill').forEach(function(btn){
       btn.addEventListener('click', function(){
+        // Clear any existing search term when selecting a category
+        searchInput.value = '';
         activeCategory = btn.dataset.cat;
         fetchProducts();
       });
@@ -355,7 +357,10 @@ footer a:hover{color:#fff}
   searchInput.addEventListener('input', function(){
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(function(){
-      if(searchInput.value.trim()) activeCategory = 'ALL';
+      if(!searchInput.value.trim()){
+        // If search cleared, reset to show all products
+        activeCategory = 'ALL';
+      }
       fetchProducts();
     }, 300);
   });
